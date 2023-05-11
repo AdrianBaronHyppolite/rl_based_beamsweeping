@@ -30,9 +30,10 @@ class RLIAEnv(Env):
         self.A_dB = -30
         self._bs_loc = np.array([0, 0, 0])  # Base station.
         self._ue_loc = np.array([0, 10, 0])  # User equipment.
-        self.phiid = -45 #set horizontal point of transmitter
+        self.phiid = -5 #set horizontal point of transmitter
         self.A = dB2lin(self.A_dB)
         self.prevmeasure = 0
+        self.mec = 0
 
         ##########
         self.pevdis = 0
@@ -63,21 +64,42 @@ class RLIAEnv(Env):
 
     #execution time tracker
 
-    def calc_spectral_efficiency(self, rsrp, bandwidth):
+    def wavelength_to_bandwidth(self, wavelength, spectral_width):
         """
-        Calculates the spectral efficiency given the received signal strength and the available bandwidth.
-        The formula used is:
-    
-        spectral efficiency = bandwidth * log2(1 + 10**(rsrp/10)/bandwidth)
-    
-        :param rsrp: Received signal strength in dBm.
-        :param bandwidth: Available bandwidth in Hz.
-        :return: Spectral efficiency in bits/s/Hz.
-        """
-        rsrp_linear = dBm2watts(rsrp)
-        spectral_efficiency = bandwidth * np.log2(1 + rsrp_linear/bandwidth)
-        return spectral_efficiency
+        Calculates the bandwidth (in Hertz) for a given wavelength (in meters) and spectral width (in nanometers).
 
+        :param wavelength: Wavelength in meters.
+        :param spectral_width: Spectral width in nanometers.
+        :return: Bandwidth in Hertz.
+        """
+        speed_of_light = 299792458  # m/s
+        central_frequency = speed_of_light / wavelength
+        delta_frequency = central_frequency * (spectral_width / wavelength) * 1e-9
+        bandwidth = delta_frequency * 2  # Double-sided bandwidth
+        return bandwidth
+
+
+    def calculate_spectral_efficiency(self, dbm_values, bandwidth):
+        """
+        Calculates the spectral efficiency from a list of dBm values and bandwidth in Hz.
+
+        :param dbm_values: List of dBm values.
+        :param bandwidth: Bandwidth in Hz.
+        :return: Spectral efficiency in bits per second per Hz.
+        """
+        # Convert dBm values to linear scale (milliwatts)
+        milliwatts = [10**(dbm/10) for dbm in dbm_values]
+
+        # Sum the milliwatts and divide by the bandwidth to get the watts per Hz
+        watts_per_hz = sum(milliwatts) / bandwidth
+
+        # Convert watts per Hz to dBm per Hz
+        dbm_per_hz = 10 * math.log10(watts_per_hz)
+
+        # Calculate the spectral efficiency in bits per second per Hz
+        spectral_efficiency = math.log2(1 + 10**(dbm_per_hz/10))
+
+        return spectral_efficiency
 
     def calc_prx(self, Cd, w_bs2ue):
         '''
@@ -94,11 +116,7 @@ class RLIAEnv(Env):
 
 
     def sweep(self, rx, _ue_loc, phiid, dis):
-        b = random.randint(0, 6)*10
-        c = random.randint(0, 6)*10
-
-        _bs_loc = np.array([0, 0, 0])
-        d_bs2ue = np.linalg.norm(_bs_loc-_ue_loc)
+        d_bs2ue = np.linalg.norm(self._bs_loc-_ue_loc)
         # Path loss coefficient.
         A = dB2lin(self.A_dB)
         # Transmit power.
@@ -113,7 +131,7 @@ class RLIAEnv(Env):
         
         start = time.time()
         for codebook_id in self._bs_antenna.codebook_ids[rx]:
-            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id)
+            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id, ptxi=1)
             #print(steering_angle, codebook_id)
             w_steer = w_steer.conj()
     
@@ -121,7 +139,7 @@ class RLIAEnv(Env):
             m = int(self._nx*self._ny*self._nz) # Number of antenna elements.
             p = np.sqrt(dBm2watts(self._Ptx_dBm)/m) * np.ones((m, 1)) * element_gain # Power spread over antenna elements.
             w, _ = self._bs_antenna.calc_array_factor( # Radiation pattern.
-                    theta=np.pi/2, phi=phiid
+                    theta=np.pi/2, phi=self.phiid
                 )
             w = w @ w_steer
             w = np.multiply(w, p)
@@ -134,7 +152,8 @@ class RLIAEnv(Env):
             prx_dBm = watts2dBm(prx)
             sigstrengthvalues = np.append(sigstrengthvalues, prx_dBm + 0.001)
         rsrp = max(sigstrengthvalues)
-        spectral = self.calc_spectral_efficiency(rsrp, 30)
+        bandwith = self.wavelength_to_bandwidth(self._wavelen, 0.1)
+        spectral = self.calculate_spectral_efficiency(sigstrengthvalues, bandwith)
         tx = sigstrengthvalues
         spec = np.argmax(sigstrengthvalues)
         end = time.time()
@@ -148,7 +167,7 @@ class RLIAEnv(Env):
         #run baseline sweep to determine chosen sweep accuracy
         baselinsigstrength = 0
         for codebook_id in self._bs_antenna.codebook_ids[rx]:
-            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id)
+            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id, phi=np.deg2rad(phiid))
             #print(steering_angle, codebook_id)
             w_steer = w_steer.conj()
             
@@ -156,7 +175,7 @@ class RLIAEnv(Env):
             m = int(self._nx*self._ny*self._nz) # Number of antenna elements.
             p = np.sqrt(dBm2watts(self._Ptx_dBm)/m) * np.ones((m, 1)) * element_gain # Power spread over antenna elements.
             w, _ = self._bs_antenna.calc_array_factor( # Radiation pattern.
-                    theta=np.pi/2, phi = phiid
+                    theta=np.pi/2, phi = 0
                 )
             w = w @ w_steer
             w = np.multiply(w, p)
@@ -197,7 +216,7 @@ class RLIAEnv(Env):
         #####################################3
         start = time.time()
         for codebook_id in self._bs_antenna.codebook_ids[[spec]]:
-            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id)
+            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id, ptxi=1)
             #print(steering_angle, codebook_id)
             w_steer = w_steer.conj()
     
@@ -205,7 +224,7 @@ class RLIAEnv(Env):
             m = int(self._nx*self._ny*self._nz) # Number of antenna elements.
             p = np.sqrt(dBm2watts(self._Ptx_dBm)/m) * np.ones((m, 1)) * element_gain # Power spread over antenna elements.
             w, _ = self._bs_antenna.calc_array_factor( # Radiation pattern.
-                    theta=np.pi/2, phi=phiid
+                    theta=np.pi/2, phi=self.phiid
                 )
             w = w @ w_steer
             w = np.multiply(w, p)
@@ -220,8 +239,9 @@ class RLIAEnv(Env):
         
         tx = sigstrengthvalues
         rsrp = max(sigstrengthvalues)
+        bandwith = self.wavelength_to_bandwidth(self._wavelen, 0.1)
+        spectral = self.calculate_spectral_efficiency(sigstrengthvalues, bandwith)
         #print("rsrp: ",rsrp)
-        spectral = self.calc_spectral_efficiency(rsrp, 30)
         spec = np.argmax(sigstrengthvalues)
         end = time.time()
 
@@ -231,7 +251,7 @@ class RLIAEnv(Env):
         #run baseline sweep to determine chosen sweep accuracy
         baselinsigstrength = 0
         for codebook_id in self._bs_antenna.codebook_ids:
-            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id)
+            w_steer, steering_angle = self._bs_antenna.steering_vec(codebook_id, phi=np.deg2rad(phiid))
             #print(steering_angle, codebook_id)
             w_steer = w_steer.conj()
             
@@ -239,7 +259,7 @@ class RLIAEnv(Env):
             m = int(self._nx*self._ny*self._nz) # Number of antenna elements.
             p = np.sqrt(dBm2watts(self._Ptx_dBm)/m) * np.ones((m, 1)) * element_gain # Power spread over antenna elements.
             w, _ = self._bs_antenna.calc_array_factor( # Radiation pattern.
-                    theta=np.pi/2, phi = phiid
+                    theta=np.pi/2, phi = 0
                 )
             w = w @ w_steer 
             w = np.multiply(w, p)
@@ -317,61 +337,43 @@ class RLIAEnv(Env):
     def act(self, action_index, specid, _ue_loc, dis):
         state = []
         if (action_index == 0):
+            self.mec=0
             state = self.lastBeam(specid, _ue_loc, self.phiid, dis)
-            state = state[2], state[3], state[4], state[5]
+            state = state[2], self.mec, state[3], state[5], state[1]
         if (action_index == 1):
+            self.mec=1
             loc1 = self.localsearch1(specid)
             state = self.sweep(loc1, _ue_loc, self.phiid, dis)
-            state = state[2], state[3], state[4], state[5]
+            state = state[2], self.mec, state[3], state[5], state[1]
         elif (action_index == 2):
+            self.mec=2
             loc2 = self.localsearch2(specid)
             state = self.sweep(loc2, _ue_loc, self.phiid, dis)
-            state = state[2], state[3], state[4], state[5]
+            state = state[2], self.mec, state[3], state[5], state[1]
         elif (action_index == 3):
+            self.mec=3
             state = self.sweep(self._bs_antenna.codebook_ids, _ue_loc, self.phiid, dis)
-            state = state[2], state[3], state[4], state[5]
+            state = state[2], self.mec, state[3], state[5], state[1]
         return state
 
-    def step(self, action):
+    def step(self, action, id, bsuedis, location):
         # TODO
         # Step function should go as follows: Action is selection of beam training mechanism hence 4 discrete values as the action space.
         # Each step a beamtraining mechanism is selected and run based on the action provided. A reward is calculated using the reward func below.
         # Each beam training mechanism is assigned a penalty vector as shown by the array self.pp the fist is exhaustive, second is beamsweeptwo and
         # so forth.
+        ##########################
 
-        a = random.randint(1, 6)*10
-        e = random.randint(0, 6)*10
-        f = random.randint(0, 6)*10
-
-        self.location= np.array([a, e, f])
+        self.state = self.act(action, id, location, bsuedis)
+        reward = self.rewardfunction(action, self.state[0])
+        ##########################
 
         self.mec = action
-
-        #Changes the distance between the transmitter and reciever
-        bsuedis = random.uniform(3.5, 15.5)
-        
-        self.bsuedis = bsuedis
 
         
         #calculate difference between adjacent distance
         self.diffdis = bsuedis - self.pevdis
     
-
-        premeasure = self.sweep(self._bs_antenna.codebook_ids, self._ue_loc, self.phiid, self.bsuedis)
-
-
-        self.run = self.act(action, premeasure[1], self._ue_loc, self.bsuedis)
-        self.spec = self.run[0]
-
-        self.state = self.spec, action, self.diffdis, self.bsuedis
-
-        reward = self.rewardfunction(action, self.spec)
-
-        #rotates transmitter horizontally
-        if self.phiid == 45:
-            self.phiid = -45
-        else:
-            self.phiid = self.phiid+10
 
         #calculate difference between adjacent angles
         self.diffang = self.phiid - self.pevang
@@ -379,7 +381,6 @@ class RLIAEnv(Env):
         #saving previous angle and distance value to calculate difference for context
         self.pevdis = bsuedis
         self.pevang = self.phiid
-
         #P return self.state, reward, True, {}
         return self.state, reward, True, {}
 

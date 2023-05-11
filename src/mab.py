@@ -54,11 +54,13 @@ class eps_bandit:
             a = np.random.choice(self.k)
         else:
             # Take greedy action
+            print('EXPLOIT')
             a = np.argmax(self.k_reward)
         
         return a
     
     def learn(self, reward, action):
+        print('LEARN', self.k_reward[action])
         # Update counts
         self.n += 1
         self.k_n[action] += 1
@@ -66,10 +68,11 @@ class eps_bandit:
         # Update total
         self.mean_reward = self.mean_reward + (
             reward - self.mean_reward) / self.n
-        
+        print('mean',self.mean_reward)
         # Update results for a_k
         self.k_reward[action] = self.k_reward[action] + (
             reward - self.k_reward[action]) / self.k_n[action]
+        print('LEARN after', self.k_reward[action], '\n------\n')
             
     def reset(self):
         # Resets results while keeping settings

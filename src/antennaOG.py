@@ -1,180 +1,120 @@
 import numpy as np 
-from toolbox import listOfTuples
 
-"""
-Antenna Array Model
-Authors: Jacek Kibilda
-"""
-
-def positionAntennaElements(nx,ny,nz,dx,dy,dz):
-    nx_vec = np.arange(nx)
-    ny_vec = np.arange(ny)
-    nz_vec = np.arange(nz)
-
-    s = (nx*ny*nz,3)
-    element_array = np.zeros(s)
-
-    #xPosition
-    xPos = dx * nx_vec
-    element_array[:,0] = np.tile(xPos, ny * nz)
-
-    #yPosition
-    yPos = dy * ny_vec
-    element_array[:,1] = np.tile(np.tile(yPos, (nx,1)).T.reshape((nx * ny,1)),(nz,1)).T
-
-    #zPosition
-    zPos = dz * nz_vec
-    element_array[:,2] = np.tile(zPos, (nx * ny,1)).T.reshape((nx * ny * nz,1)).T
-
-    return element_array
-
-
-class Omnidirectional:
-    def __init__(self, lamb, nx, ny, nz, dx, dy, dz):
-        self.lamb = lamb 
-        self.nx = nx 
-        self.ny = ny 
-        self.nz = nz
-        self.dx = dx 
-        self.dy = dy 
-        self.dz = dz 
+class AntennaModel:
+    def __init__(self, fc_ghz):
+        self.fc_hz = fc_ghz * 1e9
+        self.gain_max = 8 # in (dBi).
+        # Other antenna parameters. 
+        self._AEmax = 30 # Element pattern (dB).
+        self._SLAv = 30 # Vertical pattern (dB).
+        self._theta3dB = 65 # Vertical pattern (degrees).
+        self._AEhmax = 30 # Horizontal pattern (dB).
+        self._phi3dB = 65 # Horizontal pattern (degrees).
         return 
 
-    def calc_array_factor(self, theta, phi):
-        n = self.nx * self.ny * self.nz 
-        return np.ones(n)
+    def calc_ant_gain(self, theta, phi, theta_s, phi_s):
+        """This function calculates the antenna gain in dBi of a directional
+        antenna given the reference angles:
+            - theta_s: The vertical steering angle;
+            - phi_s: The horizontal steering angle;
+            - theta: The vertical reference angle;
+            - phi: The horizontal reference angle;
+        """
+        A = self._calc_ant_pattern(theta, phi, theta_s, phi_s)
+        F = self._calc_field_gain(A)
+        return F
 
-#This codebook is generated for the array in y-z plane
-#The codebook generates a beam on a grid that spans vAngMin and vAngMax (vertical angles), and hAngMin and hAngMax (horizontal angles); vBeams denotes the number of vertical beams, and hBeams the number of horizontal beams
-#Default values correspond to the MHU values
-def codebook_generator(wavelen,nx,ny,nz,dx,dy,dz,element_array,hBeams=9,vBeams=7,hAngMin=-45,hAngMax=45,vAngMin=-35,vAngMax=35):
+    def calc_ant_gain_aligned(self):
+        return self.calc_ant_gain(theta=90, phi=0)
 
-    k = 2 * np.pi / wavelen
+    def calc_ant_gain_random(self):
+        theta = np.random.randint(0, 180)
+        phi = np.random.randint(-180, 180)
+        return self.calc_ant_gain(theta, phi)
 
-    # Defining the RF beamforming codebook in the x-direction
-    codebook_size_x = nx
-    codebook_size_y = ny
-    codebook_size_z = nz
+    def _calc_field_gain(self, A_dB):
+        """Assumption: Perfect polarization."""
+        return A_dB
 
-    #NOTE: theta and phi are swapped in definition here to follow the convention used by the MHU
-    
-    # MHU - np.linspace(-45,45,9) Azimuth
-    phi = np.linspace(hAngMin,hAngMax,hBeams)
-    
-    # MHU - np.linspace(-35,35,7) Elevation; boresight is (0,0) so we need to translate to our domain where boresight is (90,0)
-    theta = np.linspace(vAngMin,vAngMax,vBeams) + 90
-    
-    num_beams = hBeams + vBeams
-    
-    #Prepare vectors that allocate an angle to each antenna element
-    theta_tile = np.tile(theta, (hBeams,1)).T.flatten()
-    thetaRad = np.deg2rad(theta_tile)
-    phi_tile = np.tile(phi, vBeams)
-    phiRad = np.deg2rad(phi_tile)
-    
-    beam_angles = listOfTuples(theta_tile,phi_tile)
-    
-    '''
-    NB I'm supressing this part of the code to keep compatibility with our previous implementation.
-    This way, the steering vector is given by the calc_array_factor() function. 
-    Here, we only compute the dictionary of angles.
+    def _calc_ant_pattern(self, theta, phi, theta_s, phi_s):
+        AE = self._calc_element_pattern(theta, phi)
+        AF = self._calc_array_factor(theta, phi, theta_s, phi_s)
+        A = AE + AF
+        return A
 
-    Notice that both implementations yield the same results. To see that, 
-    uncomment code blocks (J.1 and J.2).
-    '''
-    phase_shift = None
-    # # J.1: Uncomment to activate Jacek's implementation. {{{
-    # x_component = k * element_array[:,0] * np.multiply(np.cos(phiRad),np.sin(thetaRad))[:,None] #Currently not used
-    # y_component = k * element_array[:,1] * np.multiply(np.sin(phiRad),np.sin(thetaRad))[:,None]
-    # z_component = k * element_array[:,2] * np.cos(thetaRad)[:,None]
-    # phase_shift = np.exp(-1j * y_component - 1j * z_component)
-    # # }}}
+    def _calc_element_pattern(self, theta, phi):
+        AEv = self._calc_vertical_pattern(theta)
+        AEh = self._calc_horizontal_pattern(phi)
+        AE = self.gain_max - np.min([-(AEv + AEh), self._AEmax])
+        return AE
 
-    #Indices in the range 1:63; the index of antenna beam at boresight is 32
-    all_beams = np.arange(num_beams) + 1
-    
-    return phase_shift, all_beams, beam_angles
-
-class AntennaArray:
-    def __init__(self, wavelen, nx, ny, nz, dx, dy, dz, hbeams=0, vbeams=0,
-            hangmin=0, hangmax=0, vangmin=0, vangmax=0, elem_type='isotropic'):
-        self.wavelen = wavelen
-        self.nx = nx
-        self.ny = ny
-        self.nz = nz
-        self.dx = dx
-        self.dy = dy
-        self.dz = dz
+    def _calc_array_factor(self, theta, phi, theta_s, phi_s, rho=1):
+        theta = np.deg2rad(theta)
+        phi = np.deg2rad(phi)
+        theta_s = np.deg2rad(theta_s)
+        phi_s = np.deg2rad(phi_s)
         
-        #Antenna Element type; default is 'isotropic'; other models are currently not supported
-        self.elem_type = elem_type
-        
-        self.element_array = positionAntennaElements(nx, ny, nz, dx, dy, dz)
-        
-        if hbeams * vbeams > 0:
-            self.codebook, self.beam_ids, self.beam_angles = \
-                codebook_generator(wavelen, nx, ny, nz, dx, dy, dz, 
-                self.element_array, hbeams, vbeams, hangmin, hangmax, vangmin, 
-                vangmax)
-            self.codebook_ids = np.arange(len(self.beam_angles))
+        # Wavelength in meters.
+        def wl(f): return 3e8/f
+        # No. of antenna elements.
+        def ne(f):
+            if f==700e6:
+                return 2*2
+            if f==4e9:
+                return 4*4
+            if f==30e9:
+                return 8*8
+            assert True==False, "[Error] Invalid frequency!"
+            return
+
+        # Vertical spacing between antenna elements (in meters).
+        dv = lambda f: wl(f)/2
+        # Horizontal spacing between antenna elements (in meters).
+        dh = lambda f: wl(f)/2
+
+        n = ne(self.fc_hz)
+        a = np.ones(n)/np.sqrt(n)
+        m = int(np.sqrt(n))
+        w = np.ones((m, m), dtype="complex_")
+
+        for p in range(m):
+            for r in range(m):
+                psi_p = np.cos(theta) - np.cos(theta_s)
+                psi_r = np.sin(theta)*np.sin(phi)-np.sin(theta_s)*np.sin(phi_s)
+                term_p = p*dv(self.fc_hz)*psi_p/wl(self.fc_hz)
+                term_r = r*dh(self.fc_hz)*psi_r/wl(self.fc_hz)
+                w[p,r] = np.exp(2j*np.pi*(term_p + term_r))
+
+        w = w.flatten()
+        aw = np.power(np.absolute(np.dot(a, w.T)), 2)
+        if rho*(aw - 1) == -1:
+            AF = -100
         else:
-            self.codebook = self.beam_ids = self.beam_angles = self.codebook_ids = None
+            AF = 10*np.log10(1 + rho*(aw - 1))
+        return AF
 
-        return
+    def _calc_vertical_pattern(self, theta):
+        AEv = 12*np.power((theta-90)/self._theta3dB, 2)
+        AEv = -np.min([AEv, self._SLAv])
+        return AEv
 
-    def calc_array_factor(self, theta, phi):
-        thetaRad = theta#np.deg2rad(theta)
-        phiRad = phi#np.deg2rad(phi)
-        
-        k = 2 * np.pi / self.wavelen
-        
-        n = self.nx * self.ny * self.nz
-        
-        a = np.ones(n)/np.sqrt(n) #normalize the output
-        
-        x_component = k * self.element_array[:,0] * np.cos(phiRad) * np.sin(thetaRad)
-        y_component = k * self.element_array[:,1] * np.sin(phiRad) * np.sin(thetaRad)
-        z_component = k * self.element_array[:,2] * np.cos(thetaRad)
+    def _calc_horizontal_pattern(self, phi):
+        AEh = 12*np.power(phi/self._phi3dB, 2)
+        AEh = -np.min([AEh, self._AEhmax])
+        return AEh
+    
+    def get_ang(self, loc):
+        return np.angle(loc[0] + 1j*loc[1], deg=True)
+    
+    def gen_codebook(self, nh_beams, nv_beams):
+        thetas = np.linspace(-35, 35, nv_beams) if nv_beams > 1 else [0]
+        phis = np.linspace(-45, 45, nh_beams) if nh_beams > 1 else [0]
+        id = 0
+        codebook = {}
+        for phi in phis:
+            for theta in thetas:
+                codebook[id] = (phi, theta+90)
+                id += 1
+        return codebook
+    
 
-        w = np.exp(1j * x_component.T + 1j * y_component.T + 1j * z_component.T)
-        
-        aw = a * w
-  
-        return aw
-
-
-    def steering_vec(self, beam_id, phis=None):
-        '''
-        Input: 
-            - beam_id: The codebook id that will dictated the beam direction;
-            - relative_phis: The relative angles (horizontal axis) corresponding
-                to the location of receivers.
-        Output:
-            - aw: The radiation pattern
-        Returns:
-            - Codebook: Vector with the radition pattern corresponding to beam_id.
-            - Beam angles: Humane beam information corresponding to the beam_id
-                and thus the radiation vector within the codebook.
-        '''
-        # Validation of the setup.
-        err_msg = "Error! You have not initialized the codebook. " 
-        err_msg += "Please, make sure hbeams and vbeams > 0."        
-        assert len(self.beam_angles) > 0, err_msg
-        # Vertical and horizontal angles to where the beam is pointing.
-        beam_theta, beam_phi = self.beam_angles[beam_id]
-        if type(phis) == list:
-            aw = []
-            for phi in phis:
-                # TODO: Vertical alignment. 
-                aw.append(self.calc_array_factor(theta=np.deg2rad(beam_theta), phi=np.deg2rad(phi-beam_phi)))
-        else:
-            aw = self.calc_array_factor(theta=np.deg2rad(beam_theta), phi=np.deg2rad(beam_phi))
-        return aw, self.beam_angles[beam_id]
-        
-        # aw = self.calc_array_factor(np.deg2rad(theta), np.deg2rad(phi))
-        # # # J.2: Uncomment to activate Jacek's implementation. {{{
-        # # n = self.nx * self.ny * self.nz
-        # # a = np.ones(n)/np.sqrt(n) #normalize the output
-        # # aw = a*self.codebook[beam_id, :]
-        # # # }}}
-        # return aw, self.beam_angles[beam_id]

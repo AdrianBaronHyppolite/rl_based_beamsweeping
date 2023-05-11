@@ -110,6 +110,7 @@ class contextual_bandit(eps_bandit):
         # Update total
         self.mean_reward = self.mean_reward + (
             reward - self.mean_reward) / self.n
+        #print(self.mean_reward)
 
         self.neuralNet.train()
         q_values = self.neuralNet(state)
