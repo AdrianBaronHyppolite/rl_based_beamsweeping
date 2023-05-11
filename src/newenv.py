@@ -98,7 +98,8 @@ class RLIAEnv(Env):
         return tx
     
     def rewardfunction(self, action, spec):
-        rfunc = self.alpha[3] * spec - (1-self.alpha[3]) * self.pp[action]
+        print('INSIDE ENV FUNCT: ', spec, type(spec))
+        rfunc = self.alpha[3] * spec.item() - (1-self.alpha[3]) * self.pp[action]
         return rfunc
 
     def act(self, action_index):
@@ -124,8 +125,9 @@ class RLIAEnv(Env):
         # so forth.
         ##########################
         self.state = self.act(action)
-        rs = self.state[0][0]
-        reward = self.rewardfunction(action, rs)
+        self.spec = self.state[0]
+        reward = self.rewardfunction(action, self.spec)
+        
 
         ##########################
     
@@ -140,6 +142,7 @@ class RLIAEnv(Env):
         else:
             self.ue_loc[1] = self.ue_loc[1]+1
 
+        self.preid = self.state[1]
         #calculate difference between adjacent angles
 
         #saving previous angle and distance value to calculate difference for context
@@ -149,6 +152,7 @@ class RLIAEnv(Env):
 
     def reset(self):
         # Reset the state of the environment to an initial state
-        self.state = [0,0,0,0]
-        self.spec = 0
+        self.state = list(self.sweep(self.codebook.keys()))
+        self.state.append(2)
+        self.spec = self.state[0]
         return self.state
