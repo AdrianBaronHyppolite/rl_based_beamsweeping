@@ -30,6 +30,9 @@ class RLIAEnv(Env):
         self.codebook = self.antenna.gen_codebook(9, 7)
         self.preid = 0
         self.ue_loc = [15,0]
+
+    def get_ang(self, loc):
+        return np.angle(loc[0] + 1j*loc[1], deg=True)
         
     def sweep(self, txpat):
         gains = []
@@ -44,12 +47,7 @@ class RLIAEnv(Env):
             self.preid = maxdbiid
 
             #the following code will return the mechanism number
-        if self.ue_loc[1]==0:
-            ydif = 0
-        else:
-            ydif = self.ue_loc[1]-(self.ue_loc[1]-1)
-
-        return maxdbi, maxdbiid, ydif
+        return maxdbi, maxdbiid
 
     #25 beam wide search mechanism
     def localsearch2(self, spec, ptxi=1):
@@ -98,7 +96,6 @@ class RLIAEnv(Env):
         return tx
     
     def rewardfunction(self, action, spec):
-        print('INSIDE ENV FUNCT: ', spec, type(spec))
         rfunc = self.alpha[3] * spec.item() - (1-self.alpha[3]) * self.pp[action]
         return rfunc
 
@@ -107,16 +104,19 @@ class RLIAEnv(Env):
             self.mec=0
             space = self.localsearch1(self.preid)
             sweep = self.sweep(space)
-            state = sweep[0], sweep[1], sweep[2], self.mec
+            angle = self.get_ang(self.ue_loc)
+            state = sweep[0], sweep[1], self.mec, self.ue_loc[1], angle
         elif (action_index == 1):
             self.mec=1
             space = self.localsearch2(self.preid)
             sweep = self.sweep(space)
-            state = sweep[0], sweep[1], sweep[2], self.mec
+            angle = self.get_ang(self.ue_loc)
+            state = sweep[0], sweep[1], self.mec, self.ue_loc[1], angle
         elif (action_index == 2):
             self.mec=2
             sweep = self.sweep(self.codebook)
-            state = sweep[0], sweep[1], sweep[2], self.mec
+            angle = self.get_ang(self.ue_loc)
+            state = sweep[0], sweep[1], self.mec, self.ue_loc[1], angle
         return state
     
     def step(self, action):
@@ -156,5 +156,7 @@ class RLIAEnv(Env):
         # Reset the state of the environment to an initial state
         self.state = list(self.sweep(self.codebook.keys()))
         self.state.append(2)
+        self.state.append(0)
+        self.state.append(0.0)
         self.spec = self.state[0]
         return self.state
