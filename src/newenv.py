@@ -103,18 +103,20 @@ class RLIAEnv(Env):
         return rfunc
 
     def act(self, action_index):
-        state = []
         if (action_index == 0):
             self.mec=0
             space = self.localsearch1(self.preid)
-            state = self.sweep(space), self.mec
+            sweep = self.sweep(space)
+            state = sweep[0], sweep[1], sweep[2], self.mec
         elif (action_index == 1):
             self.mec=1
             space = self.localsearch2(self.preid)
-            state = self.sweep(space), self.mec
+            sweep = self.sweep(space)
+            state = sweep[0], sweep[1], sweep[2], self.mec
         elif (action_index == 2):
             self.mec=2
-            state = self.sweep(self.codebook), self.mec
+            sweep = self.sweep(self.codebook)
+            state = sweep[0], sweep[1], sweep[2], self.mec
         return state
     
     def step(self, action):
