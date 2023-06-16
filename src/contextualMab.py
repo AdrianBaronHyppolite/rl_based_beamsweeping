@@ -1,12 +1,30 @@
 import numpy as np 
 import torch
 from mab import eps_bandit
+from collections import deque
+import random
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 """
 Deep Q-network.
 """
+
+
+class ReplayBuffer(object):
+    def __init__(self, capacity):
+        self.buffer = deque(maxlen=capacity)                            # Initialization of the buffer of capacity given by the input of the function,' capacity'
+    def push(self, state, action, reward, next_state, done):            # Store one single experience (state, action, reward, next_state, done flag) in the buffer
+        state      = np.expand_dims(state, 0)                           # If you want to push an experience to the buffer, you have to make sure the 'state' and 'next_state' is 3-dimensional array
+        next_state = np.expand_dims(next_state, 0)                      # 'action' and 'reward' are two scalars, the 'done' is 'False' or 'True'
+        self.buffer.append((state, action, reward, next_state, done))
+    def sample(self, batch_size):
+        state, action, reward, next_state, done = zip(*random.sample(self.buffer, batch_size))    # This method will return you a batch of experiences
+        return np.concatenate(state), action, reward, np.concatenate(next_state), done
+    def __len__(self):                  
+        return len(self.buffer)                       # This method return the length of the buffer
+    
+
 class DQN(torch.nn.Module):
     def __init__(self, state_dim, hidden_dim, num_actions):
         super(DQN, self).__init__()
@@ -96,7 +114,7 @@ class contextual_bandit(eps_bandit):
             action = q_values.argmax().cpu().numpy()
         return action
     
-    def learn(self, reward, state, action):
+    def learn(self, reward, state, next_state, action):
         # Update counts
         self.n += 1
         self.k_n[action] += 1
@@ -125,8 +143,8 @@ class contextual_bandit(eps_bandit):
             # print(type(y))
             yhataction = float(action)
 
-            yhat = q_values[action] + yhataction *(reward + 0.9*(y))-q_values[action]
-            # yhat = yhat.reshape(y.shape).float()
+            #yhat = q_values[action] + yhataction *(reward + 0.9*(y))-q_values[action]
+            yhat = yhat.reshape(y.shape).float()
         
         # # Back-propagation.
         self.opt.zero_grad()
@@ -147,3 +165,23 @@ class contextual_bandit(eps_bandit):
         self.reward = np.zeros(self.iters)
         self.neuralNet = np.zeros(self.k)
         return
+    
+
+
+    def learn(state, action, reward, next_state):
+        q = gamma * max(Q[next_state])
+        q += reward
+        q -= Q[state][action]
+        q *= learning_rate
+        q += Q[state][action]
+        Q[state][action] = q
+
+        # agent learns
+        bandit = random.randint(0,bandits-1)
+        for i in range(0, episodes):
+            last_bandit = bandit
+            bandit = random.randint(0,bandits-1)
+            action = greedy(Q[bandit]) 
+            r = reward[last_bandit][action]
+            learn(last_bandit, action, r, bandit)
+        print(Q)

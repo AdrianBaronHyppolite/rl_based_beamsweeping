@@ -1,6 +1,7 @@
 import numpy as np 
 
 
+
 def pack2dict(dictionary, values):
     for key, value in zip(dictionary.keys(), values):
         dictionary[key].append(value)
@@ -32,7 +33,18 @@ def pathloss(loc0, loc1, alpha):
     A_dB = -30
     d0 = 1
     d = np.linalg.norm(loc0-loc1)
-    return dB2lin(A_dB) * np.power(d/d0, -alpha)
+    plos = dB2lin(A_dB) * np.power(d/d0, -alpha)
+    
+    return plos 
+
+def capacity_link(prx):
+        cp = 1/2*np.log(1+(prx/-90))
+
+def psec(csec, surfa):
+    #psec = 1/As
+    a = 1/surfa
+    b = scipy.integrate.dblquad(csec, 0, surfa, lambda x: 0, lambda x: surfa)
+
 
 
 def listOfTuples(list1, list2):
