@@ -29,22 +29,18 @@ def lin2dB(lin):
     return 10.*np.log10(lin)
 
 
-def pathloss(loc0, loc1, alpha):
+def pathloss(d2d):
     A_dB = -30
     d0 = 1
-    d = np.linalg.norm(loc0-loc1)
-    plos = dB2lin(A_dB) * np.power(d/d0, -alpha)
+    d = d2d
+    plos = dB2lin(A_dB) * np.power(d/d0, -3.5)
     
     return plos 
 
-def capacity_link(prx):
-        cp = 1/2*np.log(1+(prx/-90))
 
-def psec(csec, surfa):
-    #psec = 1/As
-    a = 1/surfa
-    b = scipy.integrate.dblquad(csec, 0, surfa, lambda x: 0, lambda x: surfa)
-
+def rss(gain, tp, freq, dist):
+    rss = (gain *tp)/(freq**2 * dist**2)
+    return rss
 
 
 def listOfTuples(list1, list2):
